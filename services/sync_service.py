@@ -95,8 +95,10 @@ class SyncService:
         now = int(datetime.now().timestamp() * 1000)
         deleted_ids = {}
         for entity_name, table in self.ENTITY_TABLES.items():
+            # 获取主键列名
+            id_col = 'package_name' if table == 'app_configs' else 'id'
             result = execute_query(
-                f"SELECT id FROM {table} WHERE tenant_id=%s AND sync_version>%s AND deleted=TRUE",
+                f"SELECT {id_col} FROM {table} WHERE tenant_id=%s AND sync_version>%s AND deleted=TRUE",
                 (tenant_id, since)
             )
             if result:
