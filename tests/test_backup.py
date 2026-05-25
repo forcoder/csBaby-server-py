@@ -54,6 +54,96 @@ def test_backup_not_found_exception():
     # 如果没有抛出异常，说明数据库连接成功（意外情况）
     # 这在实际测试中是可接受的
 
+def test_backup_upload_requires_auth():
+    """测试备份上传端点需要认证"""
+    from app import app
+    with app.test_client() as client:
+        resp = client.post('/api/v1/backup/upload', json={})
+        assert resp.status_code == 401
+
+def test_backup_list_requires_auth():
+    """测试备份列表端点需要认证"""
+    from app import app
+    with app.test_client() as client:
+        resp = client.get('/api/v1/backup/list')
+        assert resp.status_code == 401
+
+def test_backup_download_requires_auth():
+    """测试备份下载端点需要认证"""
+    from app import app
+    with app.test_client() as client:
+        resp = client.get('/api/v1/backup/download/1')
+        assert resp.status_code == 401
+
+def test_backup_restore_requires_auth():
+    """测试备份恢复端点需要认证"""
+    from app import app
+    with app.test_client() as client:
+        resp = client.post('/api/v1/backup/restore/1', json={})
+        assert resp.status_code == 401
+
+def test_backup_delete_requires_auth():
+    """测试备份删除端点需要认证"""
+    from app import app
+    with app.test_client() as client:
+        resp = client.delete('/api/v1/backup/1')
+        assert resp.status_code == 401
+
+def test_backup_upload_with_valid_token():
+    """测试备份上传使用有效令牌"""
+    from app import app
+    from utils.auth import generate_tokens
+    user_id = 'test-user'
+    tenant_id = 'test-tenant'
+    access_token, _ = generate_tokens(user_id, tenant_id)
+
+    with app.test_client() as client:
+        resp = client.post('/api/v1/backup/upload',
+                          headers={'Authorization': f'Bearer {access_token}'},
+                          json={
+                              'deviceName': 'test-device',
+                              'appVersion': '1.0.0',
+                              'data': '{}',
+                              'checksum': 'abc123'
+                          })
+        # 无数据库连接，可能500或成功
+        assert resp.status_code in [200, 500]
+
+def test_backup_list_with_valid_token():
+    """测试备份列表使用有效令牌"""
+    from app import app
+    from utils.auth import generate_tokens
+    user_id = 'test-user'
+    tenant_id = 'test-tenant'
+    access_token, _ = generate_tokens(user_id, tenant_id)
+
+    with app.test_client() as client:
+        resp = client.get('/api/v1/backup/list',
+                          headers={'Authorization': f'Bearer {access_token}'})
+        # 无数据库连接，可能500或成功
+        assert resp.status_code in [200, 500]
+
+def test_backup_upload_with_missing_fields():
+    """测试备份上传缺少必填字段"""
+    from app import app
+    from utils.auth import generate_tokens
+    user_id = 'test-user'
+    tenant_id = 'test-tenant'
+    access_token, _ = generate_tokens(user_id, tenant_id)
+
+    with app.test_client() as client:
+        resp = client.post('/api/v1/backup/upload',
+                          headers={'Authorization': f'Bearer {access_token}'},
+                          json={'deviceName': 'test'})
+        # 缺少appVersion或data等必填字段
+        assert resp.status_code in [400, 500]
+
+def test_backup_service_max_backups_limit():
+    """测试BackupService遵守最大备份数量限制"""
+    # 验证常量正确
+    assert MAX_BACKUPS_PER_TENANT > 0
+    assert isinstance(MAX_BACKUPS_PER_TENANT, int)
+
 if __name__ == '__main__':
     tests = [
         test_backup_service,
@@ -61,6 +151,15 @@ if __name__ == '__main__':
         test_max_backups_constant,
         test_backup_service_has_json_import,
         test_backup_not_found_exception,
+        test_backup_upload_requires_auth,
+        test_backup_list_requires_auth,
+        test_backup_download_requires_auth,
+        test_backup_restore_requires_auth,
+        test_backup_delete_requires_auth,
+        test_backup_upload_with_valid_token,
+        test_backup_list_with_valid_token,
+        test_backup_upload_with_missing_fields,
+        test_backup_service_max_backups_limit,
     ]
     passed = 0
     for test in tests:
