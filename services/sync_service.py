@@ -58,27 +58,27 @@ class SyncService:
     def full_sync(self, tenant_id):
         now = int(datetime.now().timestamp() * 1000)
         keyword_rules = execute_query(
-            "SELECT * FROM keyword_rules WHERE tenant_id=%s AND deleted=0 ORDER BY priority DESC",
+            "SELECT * FROM keyword_rules WHERE tenant_id=%s AND deleted=FALSE ORDER BY priority DESC",
             (tenant_id,)
         )
         ai_models = execute_query(
-            "SELECT * FROM ai_model_configs WHERE tenant_id=%s AND deleted=0", (tenant_id,)
+            "SELECT * FROM ai_model_configs WHERE tenant_id=%s AND deleted=FALSE", (tenant_id,)
         )
         profile = execute_query(
-            "SELECT * FROM user_style_profiles WHERE tenant_id=%s AND deleted=0",
+            "SELECT * FROM user_style_profiles WHERE tenant_id=%s AND deleted=FALSE",
             (tenant_id,), fetch='one'
         )
         apps = execute_query(
-            "SELECT * FROM app_configs WHERE tenant_id=%s AND deleted=0", (tenant_id,)
+            "SELECT * FROM app_configs WHERE tenant_id=%s AND deleted=FALSE", (tenant_id,)
         )
         scenarios = execute_query(
-            "SELECT * FROM scenarios WHERE tenant_id=%s AND deleted=0", (tenant_id,)
+            "SELECT * FROM scenarios WHERE tenant_id=%s AND deleted=FALSE", (tenant_id,)
         )
         replies = execute_query(
-            "SELECT * FROM reply_history WHERE tenant_id=%s AND deleted=0 LIMIT 500", (tenant_id,)
+            "SELECT * FROM reply_history WHERE tenant_id=%s AND deleted=FALSE LIMIT 500", (tenant_id,)
         )
         blacklist = execute_query(
-            "SELECT * FROM message_blacklist WHERE tenant_id=%s AND deleted=0", (tenant_id,)
+            "SELECT * FROM message_blacklist WHERE tenant_id=%s AND deleted=FALSE", (tenant_id,)
         )
         return {
             'keywordRules': [to_rule(r) for r in keyword_rules],
@@ -96,7 +96,7 @@ class SyncService:
         deleted_ids = {}
         for entity_name, table in self.ENTITY_TABLES.items():
             result = execute_query(
-                f"SELECT id FROM {table} WHERE tenant_id=%s AND sync_version>%s AND deleted=1",
+                f"SELECT id FROM {table} WHERE tenant_id=%s AND sync_version>%s AND deleted=TRUE",
                 (tenant_id, since)
             )
             if result:
