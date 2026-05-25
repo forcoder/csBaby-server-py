@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: csbaby-sync-server-py
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    envVars:
+      - key: DB_NAME
+        value: csbaby
+      - key: DB_HOST
+        fromDatabase:
+          name: csbaby
+          property: host
+      - key: DB_PORT
+        value: 5432
+      - key: DB_USER
+        fromDatabase:
+          name: csbaby
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: csbaby
+          property: password
+      - key: JWT_SECRET
+        generateValue: true
