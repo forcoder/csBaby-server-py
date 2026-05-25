@@ -10,6 +10,13 @@ load_dotenv()
 app = Flask(__name__)
 app.config['JSON_AS_ASCII'] = False
 
+# 初始化数据库表结构
+try:
+    from config.database import init_schema
+    init_schema()
+except Exception as e:
+    print(f"Warning: Schema initialization failed: {e}")
+
 # ========== 工具函数 ==========
 
 def generate_tokens(user_id, tenant_id):

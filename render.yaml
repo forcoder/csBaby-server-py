@@ -5,22 +5,20 @@ services:
     plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python app.py
+    region: oregon
+    repo: https://github.com/forcoder/csBaby-server-py
+    branch: master
+    autoDeploy: true
     envVars:
       - key: DB_NAME
-        value: csbaby
+        value: quick_speech
       - key: DB_HOST
-        fromDatabase:
-          name: csbaby
-          property: host
+        value: dpg-d7pu5hm8bjmc73blqp40-a
       - key: DB_PORT
-        value: 5432
+        value: "5432"
       - key: DB_USER
-        fromDatabase:
-          name: csbaby
-          property: user
+        value: quick_speech_user
       - key: DB_PASSWORD
-        fromDatabase:
-          name: csbaby
-          property: password
+        sync: false
       - key: JWT_SECRET
         generateValue: true
