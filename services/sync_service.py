@@ -126,9 +126,8 @@ class SyncService:
                    keyword=EXCLUDED.keyword, sync_version=EXCLUDED.sync_version""",
                 (r['id'], r.get('keyword'), r.get('matchType'), r.get('replyTemplate'),
                  r.get('category'), r.get('targetType'), r.get('targetNamesJson'),
-                 r.get('priority', 0), 1 if r.get('enabled') else 0,
-                 r.get('createdAt', now), r.get('updatedAt', now),
-                 tenant_id, now, 1 if r.get('deleted') else 0)
+                 r.get('priority', 0), r.get('enabled', True), r.get('createdAt', now), r.get('updatedAt', now),
+                 tenant_id, now, r.get('deleted', False))
             )
             stats['inserted'] += 1
         update_checkpoint(tenant_id, now)
