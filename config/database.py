@@ -119,8 +119,25 @@ def init_schema():
     try:
         cursor = conn.cursor()
         for sql in tables:
-            cursor.execute(sql)
-            logger.info(f"Executed: {sql[:50]}...")
+            try:
+                cursor.execute(sql)
+                logger.info(f"Executed: {sql[:50]}...")
+            except Exception as e:
+                logger.warning(f"Table creation warning (may already exist): {e}")
+
+        # ALTER TABLE for existing tables (add missing columns)
+        alter_statements = [
+            "DO $$ BEGIN ALTER TABLE sync_checkpoints ADD COLUMN is_syncing BOOLEAN DEFAULT FALSE; EXCEPTION WHEN duplicate_column THEN NULL; END $$",
+            "DO $$ BEGIN ALTER TABLE sync_checkpoints ADD COLUMN last_error TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$",
+            "DO $$ BEGIN ALTER TABLE sync_checkpoints ADD COLUMN device_info TEXT; EXCEPTION WHEN duplicate_column THEN NULL; END $$",
+            "DO $$ BEGIN ALTER TABLE sync_checkpoints ADD COLUMN created_at BIGINT; EXCEPTION WHEN duplicate_column THEN NULL; END $$",
+        ]
+        for sql in alter_statements:
+            try:
+                cursor.execute(sql)
+                logger.info(f"Executed ALTER: {sql[:60]}...")
+            except Exception as e:
+                logger.warning(f"ALTER warning (column may exist): {e}")
         conn.commit()
         logger.info("All tables created successfully")
     except Exception as e:
