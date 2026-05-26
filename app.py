@@ -11,11 +11,17 @@ app = Flask(__name__)
 app.config['JSON_AS_ASCII'] = False
 
 # 初始化数据库表结构
+import logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 try:
     from config.database import init_schema
+    logger.info("Initializing database schema...")
     init_schema()
+    logger.info("Database schema initialized successfully")
 except Exception as e:
-    print(f"Warning: Schema initialization failed: {e}")
+    logger.error(f"Schema initialization failed: {e}")
 
 # ========== 工具函数 ==========
 
