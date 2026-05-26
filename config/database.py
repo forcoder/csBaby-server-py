@@ -111,7 +111,7 @@ def init_schema():
     CREATE TABLE IF NOT EXISTS sync_checkpoints (
         tenant_id TEXT PRIMARY KEY, last_sync_version BIGINT DEFAULT 0, last_sync_time BIGINT, updated_at BIGINT
     );
-    CREATE TABLE IF NOT EXISTS backups (
+    CREATE TABLE IF NOT EXISTS backup_records (
         id SERIAL PRIMARY KEY, tenant_id TEXT NOT NULL, device_name TEXT, app_version TEXT, data_json TEXT,
         data_size BIGINT, checksum TEXT, version TEXT DEFAULT '1.0', backup_type TEXT DEFAULT 'manual',
         created_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT, deleted BOOLEAN DEFAULT FALSE

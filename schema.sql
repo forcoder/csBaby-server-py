@@ -153,7 +153,7 @@ CREATE TABLE IF NOT EXISTS sync_checkpoints (
 );
 
 -- Backup Records
-CREATE TABLE IF NOT EXISTS backups (
+CREATE TABLE IF NOT EXISTS backup_records (
     id SERIAL PRIMARY KEY,
     tenant_id TEXT NOT NULL,
     device_name TEXT,
