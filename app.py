@@ -182,7 +182,7 @@ def auth_refresh():
 @app.route('/sync/all', methods=['GET'])
 @require_auth
 def sync_all():
-    """全量同步 - 兼容客户端 /sync/all 端点"""
+    """全量同步 - 兼容客户端 /sync/all 端点（v2.1 添加）"""
     try:
         from services.sync_service import SyncService
         service = SyncService()
@@ -194,7 +194,7 @@ def sync_all():
 @app.route('/sync/changes', methods=['GET'])
 @require_auth
 def sync_changes():
-    """增量同步 - 兼容客户端 /sync/changes 端点"""
+    """增量同步 - 兼容客户端 /sync/changes 端点（v2.1 添加）"""
     try:
         since = int(request.args.get('since', 0))
         page = int(request.args.get('page', 1))
