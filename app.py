@@ -313,6 +313,33 @@ def backup_delete(backup_id):
     except Exception as e:
         return jsonify({'code': 500, 'message': str(e)}), 500
 
+@app.route('/api/v1/admin/keyword-rules/clear-test', methods=['POST'])
+@require_auth
+def admin_clear_test_keyword_rules():
+    """清除当前租户下 keyword 或 reply_template 包含 'test' 的知识库规则（软删除）"""
+    try:
+        from config.database import execute_update, execute_query
+        rows = execute_query(
+            "SELECT id, keyword, reply_template FROM keyword_rules WHERE tenant_id=%s AND deleted=FALSE AND (keyword ILIKE %s OR reply_template ILIKE %s)",
+            (g.tenant_id, '%test%', '%test%')
+        )
+        if not rows:
+            return jsonify({'code': 0, 'message': '没有匹配的记录', 'data': {'count': 0, 'items': []}})
+        now = int(datetime.now().timestamp() * 1000)
+        ids = [r[0] for r in rows]
+        for rid in ids:
+            execute_update(
+                "UPDATE keyword_rules SET deleted=TRUE, sync_version=%s, updated_at=%s WHERE id=%s AND tenant_id=%s",
+                (now, now, rid, g.tenant_id)
+            )
+        return jsonify({
+            'code': 0,
+            'message': f'已清除 {len(ids)} 条记录',
+            'data': {'count': len(ids), 'items': [{'id': r[0], 'keyword': r[1], 'replyTemplate': r[2]} for r in rows]}
+        })
+    except Exception as e:
+        return jsonify({'code': 500, 'message': str(e)}), 500
+
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 8080))
     app.run(host='0.0.0.0', port=port, debug=False)
