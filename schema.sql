@@ -149,7 +149,11 @@ CREATE TABLE IF NOT EXISTS sync_checkpoints (
     tenant_id TEXT PRIMARY KEY,
     last_sync_version BIGINT DEFAULT 0,
     last_sync_time BIGINT,
-    updated_at BIGINT
+    updated_at BIGINT,
+    is_syncing BOOLEAN DEFAULT FALSE,
+    last_error TEXT,
+    device_info TEXT,
+    created_at BIGINT
 );
 
 -- Backup Records
@@ -158,7 +162,8 @@ CREATE TABLE IF NOT EXISTS backup_records (
     tenant_id TEXT NOT NULL,
     device_name TEXT,
     app_version TEXT,
-    backup_data TEXT,
+    data_json TEXT,
+    data_size BIGINT,
     checksum TEXT,
     version TEXT DEFAULT '1.0',
     backup_type TEXT DEFAULT 'manual',
@@ -166,5 +171,5 @@ CREATE TABLE IF NOT EXISTS backup_records (
     deleted BOOLEAN DEFAULT FALSE
 );
 
-CREATE INDEX IF NOT EXISTS idx_backup_tenant ON backups(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_backup_created ON backups(created_at);
+CREATE INDEX IF NOT EXISTS idx_backup_tenant ON backup_records(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_backup_created ON backup_records(created_at);

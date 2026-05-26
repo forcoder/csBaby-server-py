@@ -106,7 +106,8 @@ def init_schema():
             is_enabled BOOLEAN DEFAULT TRUE, tenant_id TEXT NOT NULL, sync_version BIGINT DEFAULT 0, deleted BOOLEAN DEFAULT FALSE
         )""",
         """CREATE TABLE IF NOT EXISTS sync_checkpoints (
-            tenant_id TEXT PRIMARY KEY, last_sync_version BIGINT DEFAULT 0, last_sync_time BIGINT, updated_at BIGINT
+            tenant_id TEXT PRIMARY KEY, last_sync_version BIGINT DEFAULT 0, last_sync_time BIGINT, updated_at BIGINT,
+            is_syncing BOOLEAN DEFAULT FALSE, last_error TEXT, device_info TEXT, created_at BIGINT
         )""",
         """CREATE TABLE IF NOT EXISTS backup_records (
             id SERIAL PRIMARY KEY, tenant_id TEXT NOT NULL, device_name TEXT, app_version TEXT, data_json TEXT,
