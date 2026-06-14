@@ -82,7 +82,8 @@ def require_auth(f):
         if not payload:
             return jsonify({'code': 401, 'message': '令牌无效或已过期'}), 401
         g.user_id = payload['user_id']
-        g.tenant_id = payload['tenant_id']
+        # 兼容两种 token: 旧 sync token 含 tenant_id, 新主 API token 不含 → 用 user_id 兜底
+        g.tenant_id = payload.get('tenant_id') or payload.get('user_id', '')
         return f(*args, **kwargs)
     return decorated
 
