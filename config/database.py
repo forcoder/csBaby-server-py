@@ -45,12 +45,46 @@ def execute_query(sql, params=None, fetch='all'):
         DatabaseConfig.return_connection(conn)
 
 def execute_update(sql, params=None):
-    conn = DatabaseConfig.get_connection()
+    """逐条执行,创建独立连接,绕过 Supavisor 池化器(端口 5432 直连)。"""
+    conn = psycopg2.connect(
+        database=os.getenv('DB_NAME', 'postgres'),
+        user=os.getenv('DB_USER', 'postgres'),
+        password=os.getenv('DB_PASSWORD', 'postgres'),
+        host=os.getenv('DB_HOST', 'localhost'),
+        port=5432,  # 直连,绕过 6543 池化器
+        connect_timeout=10
+    )
     try:
         cursor = conn.cursor()
         cursor.execute(sql, params or ())
         conn.commit()
         return cursor.rowcount
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        conn.close()
+
+
+def execute_batch(statements):
+    """批量执行多条语句,共用一条连接。逐条自动提交,避免 Supabase 池化连接事务超时。"""
+    if not statements:
+        return 0
+    conn = DatabaseConfig.get_connection()
+    total = 0
+    try:
+        cursor = conn.cursor()
+        conn.autocommit = True
+        for sql, params in statements:
+            try:
+                cursor.execute(sql, params or ())
+                total += cursor.rowcount
+            except Exception as inner_e:
+                import logging
+                logging.getLogger(__name__).error(f"execute_values batch error: {inner_e}")
+                raise
+        return total
+        return total
     except Exception as e:
         conn.rollback()
         raise e

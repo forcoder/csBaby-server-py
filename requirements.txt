@@ -1,5 +1,5 @@
-flask>=3.0.0
-psycopg2-binary>=2.9.7
-PyJWT>=2.8.0
-bcrypt>=4.0.1
-python-dotenv>=1.0.0
+flask
+psycopg2-binary
+PyJWT
+bcrypt
+python-dotenv

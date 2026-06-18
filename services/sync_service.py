@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.database import execute_query, execute_update
 from models.sync_checkpoint import update_checkpoint
 from datetime import datetime
+import psycopg2
 
 def to_rule(r):
     return {'id': r[0], 'keyword': r[1], 'matchType': r[2], 'replyTemplate': r[3],
@@ -152,9 +153,20 @@ class SyncService:
         now = int(datetime.now().timestamp() * 100)
         stats = {'inserted': 0, 'updated': 0, 'deleted': 0}
 
+        import logging
+        logger = logging.getLogger(__name__)
+        rule_count = len(data.get('keywordRules', []))
+        model_count = len(data.get('aiModelConfigs', []))
+        profile_count = 1 if data.get('userStyleProfile') else 0
+        logger.info(f"push_changes tenant={tenant_id}: keywordRules={rule_count}, aiModelConfigs={model_count}, userStyleProfile={profile_count}")
+
+        # 收集所有 SQL 语句到列表,最后统一批次执行(1 个连接 + 1 个事务)
+        from config.database import execute_batch
+        statements = []
+
         # 处理 keyword_rules
         for r in data.get('keywordRules', []):
-            execute_update(
+            statements.append((
                 """INSERT INTO keyword_rules (id, keyword, match_type, reply_template, category,
                     target_type, target_names_json, priority, enabled, created_at, updated_at,
                     tenant_id, sync_version, deleted)
@@ -172,12 +184,12 @@ class SyncService:
                  r.get('priority', 0), r.get('enabled', True),
                  r.get('createdAt', now), r.get('updatedAt', now),
                  tenant_id, now, r.get('deleted', False))
-            )
+            ))
             stats['inserted'] += 1
 
         # 处理 ai_model_configs
         for m in data.get('aiModelConfigs', []):
-            execute_update(
+            statements.append((
                 """INSERT INTO ai_model_configs (id, model_type, model_name, api_key, api_endpoint,
                     temperature, max_tokens, is_default, is_enabled, monthly_cost, last_used,
                     created_at, tenant_id, sync_version, deleted)
@@ -195,13 +207,13 @@ class SyncService:
                  m.get('isDefault', False), m.get('isEnabled', True),
                  m.get('monthlyCost', 0), m.get('lastUsed', 0),
                  m.get('createdAt', now), tenant_id, now, m.get('deleted', False))
-            )
+            ))
             stats['inserted'] += 1
 
         # 处理 user_style_profiles (upsert by user_id)
         profile = data.get('userStyleProfile')
         if profile:
-            execute_update(
+            statements.append((
                 """INSERT INTO user_style_profiles (id, user_id, formality_level, enthusiasm_level,
                     professionalism_level, word_count_preference, common_phrases, avoid_phrases,
                     learning_samples, accuracy_score, last_trained, created_at, tenant_id,
@@ -222,12 +234,12 @@ class SyncService:
                  profile.get('learningSamples', 0), profile.get('accuracyScore', 0),
                  profile.get('lastTrained', 0), profile.get('createdAt', now),
                  tenant_id, now, profile.get('deleted', False))
-            )
+            ))
             stats['inserted'] += 1
 
         # 处理 app_configs (upsert by package_name)
         for a in data.get('appConfigs', []):
-            execute_update(
+            statements.append((
                 """INSERT INTO app_configs (package_name, app_name, icon_uri, is_monitored,
                     created_at, last_used, tenant_id, sync_version, deleted)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
@@ -238,12 +250,12 @@ class SyncService:
                 (a.get('packageName', ''), a.get('appName', ''), a.get('iconUri'),
                  a.get('isMonitored', False), a.get('createdAt', now),
                  a.get('lastUsed', 0), tenant_id, now, a.get('deleted', False))
-            )
+            ))
             stats['inserted'] += 1
 
         # 处理 scenarios
         for s in data.get('scenarios', []):
-            execute_update(
+            statements.append((
                 """INSERT INTO scenarios (id, name, type, target_id, description, created_at,
                     tenant_id, sync_version, deleted)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
@@ -254,12 +266,12 @@ class SyncService:
                 (str(s.get('id', '')), s.get('name', ''), s.get('type', ''),
                  s.get('targetId'), s.get('description'),
                  s.get('createdAt', now), tenant_id, now, s.get('deleted', False))
-            )
+            ))
             stats['inserted'] += 1
 
         # 处理 reply_history
         for h in data.get('replyHistory', []):
-            execute_update(
+            statements.append((
                 """INSERT INTO reply_history (id, source_app, original_message, generated_reply,
                     final_reply, rule_matched_id, model_used_id, style_applied, send_time,
                     modified, tenant_id, sync_version, deleted)
@@ -276,12 +288,12 @@ class SyncService:
                  h.get('ruleMatchedId'), h.get('modelUsedId'),
                  h.get('styleApplied', False), h.get('sendTime', 0),
                  h.get('modified', False), tenant_id, now, h.get('deleted', False))
-            )
+            ))
             stats['inserted'] += 1
 
         # 处理 message_blacklist
         for b in data.get('messageBlacklist', []):
-            execute_update(
+            statements.append((
                 """INSERT INTO message_blacklist (id, type, value, description, package_name,
                     created_at, is_enabled, tenant_id, sync_version, deleted)
                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
@@ -293,7 +305,7 @@ class SyncService:
                  b.get('description', ''), b.get('packageName'),
                  b.get('createdAt', now), b.get('isEnabled', True),
                  tenant_id, now, b.get('deleted', False))
-            )
+            ))
             stats['inserted'] += 1
 
         # 处理删除
@@ -303,11 +315,39 @@ class SyncService:
                 continue
             id_col = 'package_name' if table == 'app_configs' else 'id'
             for item_id in ids:
-                execute_update(
+                statements.append((
                     f"UPDATE {table} SET deleted=TRUE, sync_version=%s WHERE tenant_id=%s AND {id_col}=%s",
                     (now, tenant_id, str(item_id))
-                )
+                ))
                 stats['deleted'] += 1
+
+        # 批量执行: 用单个连接执行所有 SQL，避免每条 SQL 都新建数据库连接（远程 Supabase 连接开销大）
+        # 逐条 execute_update 在 196 条记录场景下会新建 196 次 TCP+SSL+认证连接 → 接近 60s 超时
+        if statements:
+            batch_conn = psycopg2.connect(
+                database=os.getenv('DB_NAME', 'postgres'),
+                user=os.getenv('DB_USER', 'postgres'),
+                password=os.getenv('DB_PASSWORD', 'postgres'),
+                host=os.getenv('DB_HOST', 'localhost'),
+                port=5432,  # 直连,绕过 Supavisor 池化器
+                connect_timeout=10
+            )
+            try:
+                cursor = batch_conn.cursor()
+                batch_conn.autocommit = False
+                for sql, params in statements:
+                    try:
+                        cursor.execute(sql, params or ())
+                    except Exception as e:
+                        logger.error(f"push_changes 单条失败: {e} | id={params[0] if params else '?'}")
+                        batch_conn.rollback()
+                        raise
+                batch_conn.commit()
+            except Exception as batch_e:
+                logger.error(f"push_changes 批量执行失败: {batch_e}")
+                raise
+            finally:
+                batch_conn.close()
 
         update_checkpoint(tenant_id, now)
         return {'accepted': True, 'conflicts': [], 'newServerVersion': now, 'serverTime': now, 'stats': stats}
