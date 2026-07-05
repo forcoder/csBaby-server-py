@@ -1,5 +1,6 @@
 flask
-psycopg2-binary
+pymysql
+dbutils
 PyJWT
 bcrypt
 python-dotenv
