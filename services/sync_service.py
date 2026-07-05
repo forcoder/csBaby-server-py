@@ -1,10 +1,10 @@
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from config.database import execute_query, execute_update, execute_batch
+from config.database import execute_query, execute_update
 from models.sync_checkpoint import update_checkpoint
 from datetime import datetime
-import pymysql  # Phase 2: 替代 psycopg2 (原 import 已移除以避免 PG 依赖)
+import psycopg2
 
 def to_rule(r):
     return {'id': r[0], 'keyword': r[1], 'matchType': r[2], 'replyTemplate': r[3],
@@ -76,7 +76,7 @@ class SyncService:
             "SELECT * FROM scenarios WHERE tenant_id=%s AND deleted=FALSE", (tenant_id,)
         )
         replies = execute_query(
-            "SELECT * FROM reply_history WHERE tenant_id=%s AND deleted=FALSE ORDER BY id", (tenant_id,)
+            "SELECT * FROM reply_history WHERE tenant_id=%s AND deleted=FALSE LIMIT 500", (tenant_id,)
         )
         blacklist = execute_query(
             "SELECT * FROM message_blacklist WHERE tenant_id=%s AND deleted=FALSE", (tenant_id,)
@@ -93,8 +93,8 @@ class SyncService:
         }
 
     def incremental_sync(self, tenant_id, since, page=1, limit=100):
-        """增量同步 — 全量拉取 (不分页), 返回所有变更数据"""
         now = int(datetime.now().timestamp() * 1000)
+        offset = (page - 1) * limit
         deleted_ids = {}
         for entity_name, table in self.ENTITY_TABLES.items():
             id_col = 'package_name' if table == 'app_configs' else 'id'
@@ -105,35 +105,37 @@ class SyncService:
             if result:
                 deleted_ids[entity_name] = [str(r[0]) for r in result]
 
-        # 全量拉取, 不分页
         keyword_rules = execute_query(
-            "SELECT * FROM keyword_rules WHERE tenant_id=%s AND sync_version>%s ORDER BY id",
-            (tenant_id, since)
+            "SELECT * FROM keyword_rules WHERE tenant_id=%s AND sync_version>%s LIMIT %s OFFSET %s",
+            (tenant_id, since, limit, offset)
         )
         ai_models = execute_query(
-            "SELECT * FROM ai_model_configs WHERE tenant_id=%s AND sync_version>%s ORDER BY id",
-            (tenant_id, since)
+            "SELECT * FROM ai_model_configs WHERE tenant_id=%s AND sync_version>%s LIMIT %s OFFSET %s",
+            (tenant_id, since, limit, offset)
         )
         profile = execute_query(
             "SELECT * FROM user_style_profiles WHERE tenant_id=%s AND sync_version>%s",
             (tenant_id, since), fetch='one'
         )
         apps = execute_query(
-            "SELECT * FROM app_configs WHERE tenant_id=%s AND sync_version>%s ORDER BY package_name",
-            (tenant_id, since)
+            "SELECT * FROM app_configs WHERE tenant_id=%s AND sync_version>%s LIMIT %s OFFSET %s",
+            (tenant_id, since, limit, offset)
         )
         scenarios = execute_query(
-            "SELECT * FROM scenarios WHERE tenant_id=%s AND sync_version>%s ORDER BY id",
-            (tenant_id, since)
+            "SELECT * FROM scenarios WHERE tenant_id=%s AND sync_version>%s LIMIT %s OFFSET %s",
+            (tenant_id, since, limit, offset)
         )
         replies = execute_query(
-            "SELECT * FROM reply_history WHERE tenant_id=%s AND sync_version>%s ORDER BY id",
-            (tenant_id, since)
+            "SELECT * FROM reply_history WHERE tenant_id=%s AND sync_version>%s LIMIT %s OFFSET %s",
+            (tenant_id, since, limit, offset)
         )
         blacklist = execute_query(
-            "SELECT * FROM message_blacklist WHERE tenant_id=%s AND sync_version>%s ORDER BY id",
-            (tenant_id, since)
+            "SELECT * FROM message_blacklist WHERE tenant_id=%s AND sync_version>%s LIMIT %s OFFSET %s",
+            (tenant_id, since, limit, offset)
         )
+        total_changes = len(keyword_rules) + len(ai_models) + len(apps) + len(scenarios) + len(replies) + len(blacklist)
+        if profile:
+            total_changes += 1
         return {
             'keywordRules': [to_rule(r) for r in keyword_rules],
             'aiModelConfigs': [to_model(m) for m in ai_models],
@@ -143,29 +145,16 @@ class SyncService:
             'replyHistory': [to_reply(h) for h in replies],
             'messageBlacklist': [to_blacklist(b) for b in blacklist],
             'deletedIds': deleted_ids,
-            'serverTime': now, 'page': 1, 'limit': 0,
-            'hasMore': False
+            'serverTime': now, 'page': page, 'limit': limit,
+            'hasMore': total_changes >= limit
         }
 
     def push_changes(self, tenant_id, data):
-        import logging
-        logger = logging.getLogger(__name__)
-
-        # 空数据 → 降级为全量拉取（兼容 "push 空数据拉取" 场景）
-        if not data or not any([
-            data.get('keywordRules'),
-            data.get('aiModelConfigs'),
-            data.get('userStyleProfile'),
-            data.get('appConfigs'),
-            data.get('scenarios'),
-            data.get('replyHistory'),
-            data.get('messageBlacklist'),
-            data.get('deletedIds')
-        ]):
-            logger.info(f"push_changes 收到空数据, 降级为全量同步 tenant={tenant_id}")
-            return self.full_sync(tenant_id)
+        now = int(datetime.now().timestamp() * 1000)  # 毫秒时间戳
         stats = {'inserted': 0, 'updated': 0, 'deleted': 0}
 
+        import logging
+        logger = logging.getLogger(__name__)
         rule_count = len(data.get('keywordRules', []))
         model_count = len(data.get('aiModelConfigs', []))
         profile_count = 1 if data.get('userStyleProfile') else 0
@@ -175,31 +164,26 @@ class SyncService:
         from config.database import execute_batch
         statements = []
 
-        import hashlib
-        # 处理 keyword_rules — 用 (tenant_id, keyword_hash) 做 upsert, 彻底避免重复
+        # 处理 keyword_rules
         for r in data.get('keywordRules', []):
-            kw = r.get('keyword', '') or ''
-            reply = r.get('replyTemplate', '') or ''
-            # keyword_hash = md5(keyword + reply_template), 确保同一租户下 keyword+reply 唯一
-            kw_hash = hashlib.md5((kw + reply).encode('utf-8')).hexdigest()
             statements.append((
                 """INSERT INTO keyword_rules (id, keyword, match_type, reply_template, category,
                     target_type, target_names_json, priority, enabled, created_at, updated_at,
-                    tenant_id, sync_version, deleted, keyword_hash)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-                   ON CONFLICT (tenant_id, keyword_hash) DO UPDATE SET
+                    tenant_id, sync_version, deleted)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (id) DO UPDATE SET
                    keyword=EXCLUDED.keyword, match_type=EXCLUDED.match_type,
                    reply_template=EXCLUDED.reply_template, category=EXCLUDED.category,
                    target_type=EXCLUDED.target_type, target_names_json=EXCLUDED.target_names_json,
                    priority=EXCLUDED.priority, enabled=EXCLUDED.enabled,
                    updated_at=EXCLUDED.updated_at, sync_version=EXCLUDED.sync_version,
                    deleted=EXCLUDED.deleted""",
-                (str(r.get('id', '')), kw, r.get('matchType', ''),
-                 reply, r.get('category', ''),
+                (str(r.get('id', '')), r.get('keyword', ''), r.get('matchType', ''),
+                 r.get('replyTemplate', ''), r.get('category', ''),
                  r.get('targetType', 'ALL'), r.get('targetNamesJson', '[]'),
                  r.get('priority', 0), r.get('enabled', True),
                  r.get('createdAt', now), r.get('updatedAt', now),
-                 tenant_id, now, r.get('deleted', False), kw_hash)
+                 tenant_id, now, r.get('deleted', False))
             ))
             stats['inserted'] += 1
 
@@ -337,14 +321,20 @@ class SyncService:
                 ))
                 stats['deleted'] += 1
 
-        # 批量执行: 用单个连接执行所有 SQL,避免每条 SQL 都新建数据库连接(远程连接开销大)
-        # Phase 2: psycopg2 → pymysql,使用 dbutils PooledDB 池的同一个连接
+        # 批量执行: 用单个连接执行所有 SQL，避免每条 SQL 都新建数据库连接（远程 Supabase 连接开销大）
+        # 逐条 execute_update 在 196 条记录场景下会新建 196 次 TCP+SSL+认证连接 → 接近 60s 超时
         if statements:
-            from config.database import DatabaseConfig
-            batch_conn = DatabaseConfig.get_connection()
+            batch_conn = psycopg2.connect(
+                database=os.getenv('DB_NAME', 'postgres'),
+                user=os.getenv('DB_USER', 'postgres'),
+                password=os.getenv('DB_PASSWORD', 'postgres'),
+                host=os.getenv('DB_HOST', 'localhost'),
+                port=5432,  # 直连,绕过 Supavisor 池化器
+                connect_timeout=10
+            )
             try:
                 cursor = batch_conn.cursor()
-                batch_conn.autocommit(False)
+                batch_conn.autocommit = False
                 for sql, params in statements:
                     try:
                         cursor.execute(sql, params or ())
@@ -357,7 +347,7 @@ class SyncService:
                 logger.error(f"push_changes 批量执行失败: {batch_e}")
                 raise
             finally:
-                DatabaseConfig.return_connection(batch_conn)
+                batch_conn.close()
 
         update_checkpoint(tenant_id, now)
         return {'accepted': True, 'conflicts': [], 'newServerVersion': now, 'serverTime': now, 'stats': stats}
