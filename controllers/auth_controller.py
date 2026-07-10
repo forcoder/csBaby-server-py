@@ -1,15 +1,31 @@
 """认证路由 (Flask Blueprint)。
 
 端点:
-  POST /auth/register - 注册
-  POST /auth/login    - 登录
-  POST /auth/refresh  - 刷新 token
+  POST /auth/register        - 注册
+  POST /auth/login           - 登录
+  POST /auth/refresh         - 刷新 token
+  POST /api/auth/user/register - 注册 (兼容主 API 路径, 客户端调用)
+  POST /api/auth/user/login    - 登录 (兼容主 API 路径, 客户端调用)
 """
 from flask import Blueprint, request, jsonify
 from models.user import create_user, authenticate_user
 from utils.auth import verify_token, generate_tokens
 
 auth_bp = Blueprint('auth', __name__)
+
+
+# ========== 主 API 兼容路由 (nginx 反代后客户端实际访问的路径) ==========
+
+@auth_bp.route('/api/auth/user/register', methods=['POST'])
+def register_api():
+    """兼容路径 /api/auth/user/register — 转给 register()"""
+    return register()
+
+
+@auth_bp.route('/api/auth/user/login', methods=['POST'])
+def login_api():
+    """兼容路径 /api/auth/user/login — 转给 login()"""
+    return login()
 
 
 @auth_bp.route('/auth/register', methods=['POST'])
@@ -64,3 +80,10 @@ def refresh():
         })
     except Exception:
         return jsonify({'code': 401, 'message': '刷新令牌无效或已过期'}), 401
+
+
+# 主 API 兼容 refresh
+@auth_bp.route('/api/auth/user/refresh', methods=['POST'])
+def refresh_api():
+    """兼容路径 /api/auth/user/refresh — 转给 refresh()"""
+    return refresh()
