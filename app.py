@@ -178,6 +178,23 @@ def auth_refresh():
     except Exception as e:
         return jsonify({'code': 401, 'message': '刷新令牌无效或已过期'}), 401
 
+# ========== 主 API 兼容路由 (nginx 反代后客户端实际访问的路径) ==========
+# 客户端 AuthApiService 调 /api/auth/user/* (主 API 路径),
+# nginx 把这些路径反向代理到本 Flask server, 没有这些 endpoint 会 500
+# 解决: 在 Flask app.py 注册同功能的 alias, 复用上面 auth_login 等的逻辑
+
+@app.route('/api/auth/user/register', methods=['POST'])
+def auth_register_api():
+    return auth_register()
+
+@app.route('/api/auth/user/login', methods=['POST'])
+def auth_login_api():
+    return auth_login()
+
+@app.route('/api/auth/user/refresh', methods=['POST'])
+def auth_refresh_api():
+    return auth_refresh()
+
 # ========== 同步路由 (兼容客户端) ==========
 
 @app.route('/sync/all', methods=['GET'])
