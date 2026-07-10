@@ -3,6 +3,7 @@ import bcrypt
 import os
 from functools import wraps
 from datetime import datetime
+from flask import request, jsonify, g
 
 JWT_SECRET = os.getenv('JWT_SECRET', 'default-secret-change-me')
 JWT_ALGORITHM = 'HS256'
@@ -33,9 +34,17 @@ def verify_token(token, token_type='access'):
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
         if payload.get('type') != token_type:
+            import logging
+            logging.warning(f"token type mismatch: got {payload.get('type')!r}, expected {token_type!r}")
             return None
         return payload
-    except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+    except jwt.ExpiredSignatureError:
+        import logging
+        logging.warning("token expired")
+        return None
+    except jwt.InvalidTokenError as e:
+        import logging
+        logging.warning(f"token invalid: {e}")
         return None
 
 def hash_password(password):
@@ -45,19 +54,22 @@ def verify_password(password, hashed):
     return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
 
 def require_auth(func):
+    """Flask 风格 require_auth: 验证 Bearer token, 设置 g.tenant_id / g.user_id。
+
+    兼容两种 token:
+      - 旧 sync token 含 tenant_id 字段
+      - 新主 API token 不含 tenant_id → 用 user_id 兜底
+    """
     @wraps(func)
     def wrapper(*args, **kwargs):
-        import web
-        auth_header = web.ctx.environ.get('HTTP_AUTHORIZATION', '')
+        auth_header = request.headers.get('Authorization', '')
         if not auth_header.startswith('Bearer '):
-            web.ctx.status = '401 Unauthorized'
-            return '{"code":401,"message":"缺少认证令牌"}'
+            return jsonify({'code': 401, 'message': '缺少认证令牌'}), 401
         token = auth_header[7:]
         payload = verify_token(token)
         if not payload:
-            web.ctx.status = '401 Unauthorized'
-            return '{"code":401,"message":"令牌无效或已过期"}'
-        web.ctx.user_id = payload['user_id']
-        web.ctx.tenant_id = payload['tenant_id']
+            return jsonify({'code': 401, 'message': '令牌无效或已过期'}), 401
+        g.user_id = payload['user_id']
+        g.tenant_id = payload.get('tenant_id') or payload.get('user_id', '')
         return func(*args, **kwargs)
     return wrapper

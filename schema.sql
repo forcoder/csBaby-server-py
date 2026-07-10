@@ -1,175 +1,180 @@
 -- csBaby Sync Server Database Schema
--- PostgreSQL 16
+-- Phase 2: MySQL 8.0+ 方言 (替代 PostgreSQL)
+-- 与 config/database.py _SCHEMA_TABLES 保持一致,供 scripts/migrate_supabase_to_rds.py 等工具使用
 
--- Users table
+SET sql_mode = 'STRICT_ALL_TABLES';
+
+-- ===== Users table =====
 CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    email TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    display_name TEXT,
-    tenant_id TEXT NOT NULL,
-    created_at BIGINT NOT NULL DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
+    id VARCHAR(64) PRIMARY KEY,
+    email VARCHAR(191) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    display_name VARCHAR(191),
+    tenant_id VARCHAR(64) NOT NULL,
+    created_at BIGINT NOT NULL,
     updated_at BIGINT,
-    deleted BOOLEAN DEFAULT FALSE
-);
+    deleted TINYINT(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-CREATE INDEX IF NOT EXISTS idx_users_tenant ON users(tenant_id);
+CREATE INDEX idx_users_tenant ON users(tenant_id);
 
--- Keyword Rules
+-- ===== Keyword Rules =====
 CREATE TABLE IF NOT EXISTS keyword_rules (
-    id TEXT PRIMARY KEY,
+    id VARCHAR(64) PRIMARY KEY,
     keyword TEXT,
-    match_type TEXT,
+    match_type VARCHAR(50),
     reply_template TEXT,
-    category TEXT,
-    target_type TEXT,
+    category VARCHAR(100),
+    target_type VARCHAR(50),
     target_names_json TEXT,
     priority INT DEFAULT 0,
-    enabled BOOLEAN DEFAULT TRUE,
+    enabled TINYINT(1) DEFAULT 1,
     created_at BIGINT,
     updated_at BIGINT,
-    tenant_id TEXT NOT NULL,
+    tenant_id VARCHAR(64) NOT NULL,
     sync_version BIGINT DEFAULT 0,
-    deleted BOOLEAN DEFAULT FALSE
-);
+    deleted TINYINT(1) DEFAULT 0,
+    keyword_hash VARCHAR(64)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE INDEX IF NOT EXISTS idx_keyword_tenant ON keyword_rules(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_keyword_version ON keyword_rules(sync_version);
+CREATE INDEX idx_keyword_tenant ON keyword_rules(tenant_id);
+CREATE INDEX idx_keyword_version ON keyword_rules(sync_version);
+-- Phase 2 新增: 唯一索引 (tenant_id, keyword_hash) 替代旧 uk_tenant_keyword
+CREATE UNIQUE INDEX uk_tenant_keyword_hash ON keyword_rules(tenant_id, keyword_hash);
 
--- AI Model Configs
+-- ===== AI Model Configs =====
 CREATE TABLE IF NOT EXISTS ai_model_configs (
-    id TEXT PRIMARY KEY,
-    model_type TEXT,
-    model_name TEXT,
+    id VARCHAR(64) PRIMARY KEY,
+    model_type VARCHAR(50),
+    model_name VARCHAR(200),
     api_key TEXT,
     api_endpoint TEXT,
-    temperature REAL DEFAULT 0.7,
+    temperature DOUBLE DEFAULT 0.7,
     max_tokens INT DEFAULT 1000,
-    is_default BOOLEAN DEFAULT FALSE,
-    is_enabled BOOLEAN DEFAULT TRUE,
-    monthly_cost REAL DEFAULT 0,
+    is_default TINYINT(1) DEFAULT 0,
+    is_enabled TINYINT(1) DEFAULT 1,
+    monthly_cost DOUBLE DEFAULT 0,
     last_used BIGINT,
     created_at BIGINT,
-    tenant_id TEXT NOT NULL,
+    tenant_id VARCHAR(64) NOT NULL,
     sync_version BIGINT DEFAULT 0,
-    deleted BOOLEAN DEFAULT FALSE
-);
+    deleted TINYINT(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE INDEX IF NOT EXISTS idx_ai_model_tenant ON ai_model_configs(tenant_id);
+CREATE INDEX idx_ai_model_tenant ON ai_model_configs(tenant_id);
 
--- User Style Profiles
+-- ===== User Style Profiles =====
 CREATE TABLE IF NOT EXISTS user_style_profiles (
-    id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    formality_level REAL DEFAULT 0.5,
-    enthusiasm_level REAL DEFAULT 0.5,
-    professionalism_level REAL DEFAULT 0.5,
+    id VARCHAR(64) PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL,
+    formality_level DOUBLE DEFAULT 0.5,
+    enthusiasm_level DOUBLE DEFAULT 0.5,
+    professionalism_level DOUBLE DEFAULT 0.5,
     word_count_preference INT DEFAULT 50,
-    common_phrases TEXT DEFAULT '[]',
-    avoid_phrases TEXT DEFAULT '[]',
-    learning_samples TEXT DEFAULT '[]',
-    accuracy_score REAL DEFAULT 0.5,
+    common_phrases TEXT,
+    avoid_phrases TEXT,
+    learning_samples TEXT,
+    accuracy_score DOUBLE DEFAULT 0.5,
     last_trained BIGINT,
     created_at BIGINT,
-    tenant_id TEXT NOT NULL,
+    tenant_id VARCHAR(64) NOT NULL,
     sync_version BIGINT DEFAULT 0,
-    deleted BOOLEAN DEFAULT FALSE
-);
+    deleted TINYINT(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE INDEX IF NOT EXISTS idx_profile_tenant ON user_style_profiles(tenant_id);
+CREATE INDEX idx_profile_tenant ON user_style_profiles(tenant_id);
 
--- App Configs
+-- ===== App Configs =====
 CREATE TABLE IF NOT EXISTS app_configs (
-    package_name TEXT PRIMARY KEY,
-    app_name TEXT,
+    package_name VARCHAR(191) PRIMARY KEY,
+    app_name VARCHAR(191),
     icon_uri TEXT,
-    is_monitored BOOLEAN DEFAULT TRUE,
+    is_monitored TINYINT(1) DEFAULT 1,
     created_at BIGINT,
     last_used BIGINT,
-    tenant_id TEXT NOT NULL,
+    tenant_id VARCHAR(64) NOT NULL,
     sync_version BIGINT DEFAULT 0,
-    deleted BOOLEAN DEFAULT FALSE
-);
+    deleted TINYINT(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE INDEX IF NOT EXISTS idx_app_tenant ON app_configs(tenant_id);
+CREATE INDEX idx_app_tenant ON app_configs(tenant_id);
 
--- Scenarios
+-- ===== Scenarios =====
 CREATE TABLE IF NOT EXISTS scenarios (
-    id TEXT PRIMARY KEY,
-    name TEXT,
-    type TEXT,
-    target_id TEXT,
+    id VARCHAR(64) PRIMARY KEY,
+    name VARCHAR(200),
+    type VARCHAR(50),
+    target_id VARCHAR(64),
     description TEXT,
     created_at BIGINT,
-    tenant_id TEXT NOT NULL,
+    tenant_id VARCHAR(64) NOT NULL,
     sync_version BIGINT DEFAULT 0,
-    deleted BOOLEAN DEFAULT FALSE
-);
+    deleted TINYINT(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE INDEX IF NOT EXISTS idx_scenario_tenant ON scenarios(tenant_id);
+CREATE INDEX idx_scenario_tenant ON scenarios(tenant_id);
 
--- Reply History
+-- ===== Reply History =====
 CREATE TABLE IF NOT EXISTS reply_history (
-    id TEXT PRIMARY KEY,
-    source_app TEXT,
+    id VARCHAR(64) PRIMARY KEY,
+    source_app VARCHAR(255),
     original_message TEXT,
     generated_reply TEXT,
     final_reply TEXT,
-    rule_matched_id TEXT,
-    model_used_id TEXT,
-    style_applied BOOLEAN DEFAULT FALSE,
+    rule_matched_id VARCHAR(64),
+    model_used_id VARCHAR(64),
+    style_applied TINYINT(1) DEFAULT 0,
     send_time BIGINT,
-    modified BOOLEAN DEFAULT FALSE,
-    tenant_id TEXT NOT NULL,
+    modified TINYINT(1) DEFAULT 0,
+    tenant_id VARCHAR(64) NOT NULL,
     sync_version BIGINT DEFAULT 0,
-    deleted BOOLEAN DEFAULT FALSE
-);
+    deleted TINYINT(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE INDEX IF NOT EXISTS idx_reply_tenant ON reply_history(tenant_id);
+CREATE INDEX idx_reply_tenant ON reply_history(tenant_id);
 
--- Message Blacklist
+-- ===== Message Blacklist =====
 CREATE TABLE IF NOT EXISTS message_blacklist (
-    id TEXT PRIMARY KEY,
-    type TEXT,
+    id VARCHAR(64) PRIMARY KEY,
+    type VARCHAR(50),
     value TEXT,
     description TEXT,
-    package_name TEXT,
+    package_name VARCHAR(255),
     created_at BIGINT,
-    is_enabled BOOLEAN DEFAULT TRUE,
-    tenant_id TEXT NOT NULL,
+    is_enabled TINYINT(1) DEFAULT 1,
+    tenant_id VARCHAR(64) NOT NULL,
     sync_version BIGINT DEFAULT 0,
-    deleted BOOLEAN DEFAULT FALSE
-);
+    deleted TINYINT(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE INDEX IF NOT EXISTS idx_blacklist_tenant ON message_blacklist(tenant_id);
+CREATE INDEX idx_blacklist_tenant ON message_blacklist(tenant_id);
 
--- Sync Checkpoints
+-- ===== Sync Checkpoints =====
 CREATE TABLE IF NOT EXISTS sync_checkpoints (
-    tenant_id TEXT PRIMARY KEY,
+    tenant_id VARCHAR(64) PRIMARY KEY,
     last_sync_version BIGINT DEFAULT 0,
     last_sync_time BIGINT,
     updated_at BIGINT,
-    is_syncing BOOLEAN DEFAULT FALSE,
+    is_syncing TINYINT(1) DEFAULT 0,
     last_error TEXT,
     device_info TEXT,
     created_at BIGINT
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- Backup Records
+-- ===== Backup Records =====
 CREATE TABLE IF NOT EXISTS backup_records (
-    id SERIAL PRIMARY KEY,
-    tenant_id TEXT NOT NULL,
-    device_name TEXT,
-    app_version TEXT,
-    data_json TEXT,
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id VARCHAR(64) NOT NULL,
+    device_name VARCHAR(191),
+    app_version VARCHAR(50),
+    data_json LONGTEXT,
     data_size BIGINT,
-    checksum TEXT,
-    version TEXT DEFAULT '1.0',
-    backup_type TEXT DEFAULT 'manual',
-    created_at BIGINT DEFAULT (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT,
-    deleted BOOLEAN DEFAULT FALSE
-);
+    checksum VARCHAR(64),
+    version VARCHAR(20) DEFAULT '1.0',
+    backup_type VARCHAR(20) DEFAULT 'manual',
+    created_at BIGINT,
+    deleted TINYINT(1) DEFAULT 0
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE INDEX IF NOT EXISTS idx_backup_tenant ON backup_records(tenant_id);
-CREATE INDEX IF NOT EXISTS idx_backup_created ON backup_records(created_at);
+CREATE INDEX idx_backup_tenant ON backup_records(tenant_id);
+CREATE INDEX idx_backup_created ON backup_records(created_at);
