@@ -256,9 +256,7 @@ def user_login():
     user_id = row["id"]
     token = auth_service.generate_token(user_id)
     return jsonify({
-        "userId": user_id, "tenantId": user_id,
-        "phone": row.get("account"), "email": row.get("account"),
-        "account": row.get("account"),
+        "user_id": user_id, "phone": row.get("phone"), "email": row.get("email"),
         "token": token, "expires_in": 30 * 86400,
     })
 
@@ -826,7 +824,7 @@ def export_backup():
     blacklist_items = []
     try:
         db = get_connection()
-        bl_rows = db.execute("SELECT * FROM `message_blacklist` WHERE tenant_id=? ORDER BY created_at DESC", (user_id,)).fetchall()
+        bl_rows = db.execute("SELECT * FROM blacklist WHERE user_id=? ORDER BY created_at DESC", (user_id,)).fetchall()
         blacklist_items = [dict(r) for r in bl_rows]
         db.close()
     except Exception:
@@ -901,7 +899,7 @@ def restore_backup():
     if parsed_models:
         db = get_connection()
         try:
-            db.execute("DELETE FROM `model_configs` WHERE tenant_id=?", (user_id,))
+            db.execute("DELETE FROM model_configs WHERE user_id=?", (user_id,))
             db.commit()
         finally:
             db.close()
@@ -914,7 +912,7 @@ def restore_backup():
     if bl_data and isinstance(bl_data, list):
         db = get_connection()
         try:
-            db.execute("DELETE FROM `message_blacklist` WHERE tenant_id=?", (user_id,))
+            db.execute("DELETE FROM blacklist WHERE user_id=?", (user_id,))
             db.commit()
             for bl in bl_data:
                 db.execute(
@@ -1187,7 +1185,7 @@ def admin_stats():
     try:
         if tenant_id:
             user_count = db.execute("SELECT COUNT(*) FROM users WHERE id=?", (tenant_id,)).fetchone()[0]
-            rule_count = db.execute("SELECT COUNT(*) FROM `keyword_rules` WHERE tenant_id=?", (tenant_id,)).fetchone()[0]
+            rule_count = db.execute("SELECT COUNT(*) FROM keyword_rules WHERE user_id=?", (tenant_id,)).fetchone()[0]
             history_count = db.execute("SELECT COUNT(*) FROM reply_history WHERE user_id=?", (tenant_id,)).fetchone()[0]
             today = _now_str()[:10]
             today_history = db.execute(
@@ -1285,9 +1283,9 @@ def admin_get_tenant(tenant_id):
         if not row:
             return jsonify({"error": "Tenant not found"}), 404
         d = dict(row)
-        d["rule_count"] = db.execute("SELECT COUNT(*) FROM `keyword_rules` WHERE tenant_id=?", (tenant_id,)).fetchone()[0]
+        d["rule_count"] = db.execute("SELECT COUNT(*) FROM keyword_rules WHERE user_id=?", (tenant_id,)).fetchone()[0]
         d["history_count"] = db.execute("SELECT COUNT(*) FROM reply_history WHERE user_id=?", (tenant_id,)).fetchone()[0]
-        d["model_count"] = db.execute("SELECT COUNT(*) FROM `model_configs` WHERE tenant_id=?", (tenant_id,)).fetchone()[0]
+        d["model_count"] = db.execute("SELECT COUNT(*) FROM model_configs WHERE user_id=?", (tenant_id,)).fetchone()[0]
         return jsonify(d)
     finally:
         db.close()
@@ -1404,7 +1402,7 @@ def admin_save_tenant_default_model(tenant_id):
 def admin_delete_tenant_default_model(tenant_id):
     db = get_connection()
     try:
-        db.execute("DELETE FROM `model_configs` WHERE tenant_id=? AND is_default=1", (tenant_id,))
+        db.execute("DELETE FROM model_configs WHERE user_id=? AND is_default=1", (tenant_id,))
         db.commit()
     finally:
         db.close()
@@ -1546,7 +1544,7 @@ def _blacklist_to_dict(row):
 def admin_get_blacklist(tenant_id):
     db = get_connection()
     try:
-        rows = db.execute("SELECT * FROM `message_blacklist` WHERE tenant_id=? ORDER BY created_at DESC", (tenant_id,)).fetchall()
+        rows = db.execute("SELECT * FROM blacklist WHERE user_id=? ORDER BY created_at DESC", (tenant_id,)).fetchall()
         return jsonify([_blacklist_to_dict(r) for r in rows])
     finally:
         db.close()
@@ -1611,7 +1609,7 @@ def admin_delete_blacklist(tenant_id, bid):
 def admin_clear_blacklist(tenant_id):
     db = get_connection()
     try:
-        db.execute("DELETE FROM `message_blacklist` WHERE tenant_id=?", (tenant_id,))
+        db.execute("DELETE FROM blacklist WHERE user_id=?", (tenant_id,))
         db.commit()
         return jsonify({"status": "cleared"})
     finally:
@@ -2305,7 +2303,7 @@ def admin_export_tenant_backup(tenant_id):
     blacklist_items = []
     try:
         db = get_connection()
-        bl_rows = db.execute("SELECT * FROM `message_blacklist` WHERE tenant_id=? ORDER BY created_at DESC", (user_id,)).fetchall()
+        bl_rows = db.execute("SELECT * FROM blacklist WHERE user_id=? ORDER BY created_at DESC", (user_id,)).fetchall()
         blacklist_items = [dict(r) for r in bl_rows]
         db.close()
     except Exception:
@@ -2382,7 +2380,7 @@ def admin_restore_tenant_backup(tenant_id):
     if models_data and isinstance(models_data, list):
         db = get_connection()
         try:
-            db.execute("DELETE FROM `model_configs` WHERE tenant_id=?", (user_id,))
+            db.execute("DELETE FROM model_configs WHERE user_id=?", (user_id,))
             db.commit()
         finally:
             db.close()
@@ -2406,7 +2404,7 @@ def admin_restore_tenant_backup(tenant_id):
     if bl_data and isinstance(bl_data, list):
         db = get_connection()
         try:
-            db.execute("DELETE FROM `message_blacklist` WHERE tenant_id=?", (user_id,))
+            db.execute("DELETE FROM blacklist WHERE user_id=?", (user_id,))
             db.commit()
             for bl in bl_data:
                 db.execute(
@@ -2509,87 +2507,60 @@ from datetime import datetime
 # so the Android client can use a single domain (api.agentai0.com) for all API calls.
 # nginx routes /auth/* and /sync/* and /api/v1/backup/* to this container (8084).
 
-@app.route("/auth/refresh", methods=["POST"])
 @app.route("/sync/pull", methods=["GET"])
 @require_auth
 def sync_pull():
-    """Incremental sync for WebView (Chrome UA). 
-    Query: lastPullTime=<ISO time>.
-    Response: {code:0, data:{lastPullTime, items:[...]}}."""
-    import time as _time
-    last_pull = request.args.get("lastPullTime", "")
-    response_data = _raw_sync_all(request.user_id)
-    return jsonify({
-        "code": 0,
-        "data": {"lastPullTime": last_pull, "serverTime": int(_time.time() * 1000), "items": response_data},
-    })
+    """Incremental sync alias for WebView (Chrome UA) — delegates to /sync/all."""
+    return sync_all()
 
 
 @app.route("/sync/download", methods=["GET"])
+@require_auth
 def sync_download():
-    """Download/stream endpoint for WebView (Chrome UA)."""
+    """Alias for /sync/pull (WebView calls both)."""
     return sync_pull()
 
 
+@app.route("/auth/refresh", methods=["POST"])
 @app.route("/sync/all", methods=["GET"])
 @require_auth
 def sync_all():
-    """
-    Full sync: return tenant data from RDS MySQL.
-    Query: tenantId=<tenant_id>
-    Response: {code:0, data:{keywordRules, aiModelConfigs, messageBlacklist, replyHistory, scenarios, userStyleProfile, serverTime}}
-    """
-    import time as _time
-    import os as _os_mod
+    """Full sync: return tenant data in client-expected camelCase fields. Raw pymysql bypasses SQL transformer."""
+    import time as _time, pymysql, os
     ensure_db()
     tenant_id = request.args.get("tenantId") or request.user_id
-    result = _raw_sync_all(tenant_id)
-    result["serverTime"] = int(_time.time() * 1000)
-    return jsonify({"code": 0, "data": result})
-
-
-def _raw_sync_all(tenant_id):
-    """Run real SQL against MySQL tables bypassing the api_ prefix transformer."""
-    import pymysql, os
-    conn = pymysql.connect(
+    conn2 = pymysql.connect(
         host=os.environ["DB_HOST"], port=int(os.environ["DB_PORT"]),
         user=os.environ["DB_USER"], password=os.environ["DB_PASSWORD"],
-        database=os.environ["DB_NAME"], charset="utf8mb4",
-        ssl_disabled=True,
+        database=os.environ["DB_NAME"], charset="utf8mb4", ssl_disabled=True,
     )
-    cur = conn.cursor(pymysql.cursors.DictCursor)
+    cur2 = conn2.cursor(pymysql.cursors.DictCursor)
     def q(sql, params=()):
         try:
-            cur.execute(sql, params)
-            return cur.fetchall()
+            cur2.execute(sql, params)
+            return cur2.fetchall()
         except Exception:
             return []
+    user_row = None
+    try:
+        cur2.execute("SELECT * FROM user_style_profiles WHERE tenant_id=%s LIMIT 1", (tenant_id,))
+        user_row = cur2.fetchone()
+    except Exception:
+        pass
     out = {
         "keywordRules":     q("SELECT * FROM keyword_rules WHERE tenant_id=%s", (tenant_id,)),
         "aiModelConfigs":   q("SELECT * FROM model_configs WHERE tenant_id=%s", (tenant_id,)),
         "messageBlacklist": q("SELECT * FROM message_blacklist WHERE tenant_id=%s", (tenant_id,)),
         "replyHistory":     q("SELECT * FROM reply_history WHERE tenant_id=%s ORDER BY created_at DESC LIMIT 500", (tenant_id,)),
         "scenarios":        q("SELECT * FROM scenarios WHERE tenant_id=%s", (tenant_id,)),
-        "optimizationMetrics": q("SELECT * FROM optimization_metrics WHERE tenant_id=%s", (tenant_id,)),
     }
-    cur.execute("SELECT * FROM user_style_profiles WHERE tenant_id=%s LIMIT 1", (tenant_id,))
-    row = cur.fetchone()
-    out["userStyleProfile"] = dict(row) if row else None
-
-    # Date/datetime → json safe
-    def json_safe(obj):
-        if hasattr(obj, "isoformat"):
-            return int(obj.timestamp() * 1000) if hasattr(obj, "timestamp") else str(obj)
-        return str(obj) if not isinstance(obj, (str, int, float, bool, type(None))) else obj
-
-    for k in out:
-        if isinstance(out[k], list):
-            out[k] = [{kk: json_safe(vv) for kk, vv in r.items()} for r in out[k]]
-        elif isinstance(out[k], dict):
-            out[k] = {kk: json_safe(vv) for kk, vv in out[k].items()}
-
-    conn.close()
-    return out
+    conn2.close()
+    return jsonify({"code": 0, "data": {
+        **out,
+        "userStyleProfile": dict(user_row) if user_row else None,
+        "appConfigs": [],
+        "serverTime": int(_time.time() * 1000),
+    }})
 
 
 @app.route("/sync/changes", methods=["GET"])
@@ -2598,51 +2569,33 @@ def sync_changes():
     """
     Incremental sync: return changes since a timestamp.
     Query: tenantId=<tenant_id>, since=<unix_ms>
+    Response: full SyncChanges DTO with 11 fields
     """
+    import pymysql, os, time
     ensure_db()
     tenant_id = request.args.get("tenantId") or request.user_id
     since = request.args.get("since", "0")
-    conn = get_connection()
+    conn2 = pymysql.connect(
+        host=os.environ["DB_HOST"], port=int(os.environ["DB_PORT"]),
+        user=os.environ["DB_USER"], password=os.environ["DB_PASSWORD"],
+        database=os.environ["DB_NAME"], charset="utf8mb4", ssl_disabled=True,
+    )
+    cur2 = conn2.cursor(pymysql.cursors.DictCursor)
     try:
-        # bypass transformer, query raw MySQL table with correct column (tenant_id)
-        import pymysql, os
-        conn2 = pymysql.connect(
-            host=os.environ["DB_HOST"], port=int(os.environ["DB_PORT"]),
-            user=os.environ["DB_USER"], password=os.environ["DB_PASSWORD"],
-            database=os.environ["DB_NAME"], charset="utf8mb4", ssl_disabled=True,
-        )
-        cur2 = conn2.cursor(pymysql.cursors.DictCursor)
         cur2.execute(
             "SELECT * FROM keyword_rules WHERE tenant_id=%s AND updated_at > %s",
-            (tenant_id, int(since) if since else 0),
+            (tenant_id, int(since) if str(since).isdigit() else 0),
         )
         rows = cur2.fetchall()
-        conn2.close()
-        conn.close()
-        # Return all 8 fields matching client DTO
-        return jsonify({"code": 0, "data": {
-            "keywordRules":     rows,
-            "aiModelConfigs":   [],
-            "userStyleProfile": None,
-            "appConfigs":       [],
-            "scenarios":        [],
-            "replyHistory":     [],
-            "messageBlacklist": [],
-            "deletedIds":       {},
-            "serverTime":       __import__("time").time() * 1000,
-            "hasMore":          False,
-            "nextCursor":       None,
-        }})
-    finally:
-        conn.close()
-
-
-
-@app.route("/sync/resolve", methods=["POST"])
-@require_auth
-def sync_resolve():
-    """Conflict resolution stub."""
-    return jsonify({"code": 0, "data": {"resolved": True, "serverTime": __import__("time").time() * 1000}})
+    except Exception:
+        rows = []
+    conn2.close()
+    return jsonify({"code": 0, "data": {
+        "keywordRules": rows, "aiModelConfigs": [], "userStyleProfile": None,
+        "appConfigs": [], "scenarios": [], "replyHistory": [],
+        "messageBlacklist": [], "deletedIds": {},
+        "serverTime": int(time.time() * 1000), "hasMore": False, "nextCursor": None,
+    }})
 
 
 @app.route("/sync/push", methods=["POST"])
@@ -2669,7 +2622,7 @@ def sync_push():
             )
             applied += 1
         conn.commit()
-        return jsonify({"code": 0, "data": {"applied": applied, "accepted": True, "conflicts": [], "newServerVersion": 0, "serverTime": __import__("time").time() * 1000, "stats": {"inserted": applied, "updated": 0, "deleted": 0}}})
+        return jsonify({"applied": applied})
     finally:
         conn.close()
 
@@ -2714,16 +2667,7 @@ def backup_list_v1():
         for bid, b in _in_memory_backups.items()
         if b.get("tenantId") == tenant_id
     ]
-    return jsonify({"code": 0, "data": {"items": items}})
-
-
-
-@app.route("/api/v1/backup/<int:backup_id>", methods=["DELETE"])
-@require_auth
-def backup_delete_v1(backup_id):
-    """Delete a backup by ID (stub)."""
-    _in_memory_backups.pop(str(backup_id), None)
-    return jsonify({"code": 0, "data": {"deleted": True}})
+    return jsonify({"items": items})
 
 
 @app.route("/api/v1/backup/download/<backup_id>", methods=["GET"])
@@ -2733,7 +2677,7 @@ def backup_download_v1(backup_id):
     backup = _in_memory_backups.get(backup_id)
     if not backup or backup.get("tenantId") != request.user_id:
         return jsonify({"error": "Backup not found"}), 404
-    return jsonify({"code": 0, "data": backup.get("data", {})})
+    return jsonify(backup.get("data", {}))
 
 
 # ========== End Cloud Sync Compatibility Routes ==========
