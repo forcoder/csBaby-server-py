@@ -1968,7 +1968,7 @@ def _load_routing_config_from_db():
     """Load routing_config from DB into memory on startup."""
     db = get_connection()
     try:
-        rows = db.execute("SELECT key, value FROM routing_config").fetchall()
+        rows = db.execute("SELECT `key`, value FROM api_routing_config").fetchall()
         cfg = {}
         for r in rows:
             try:
@@ -1986,7 +1986,7 @@ def _save_routing_config_to_db(key, value):
     db = get_connection()
     try:
         db.execute(
-            "INSERT OR REPLACE INTO routing_config (key, value, updated_at) VALUES (?, ?, ?)",
+            "INSERT OR REPLACE INTO api_routing_config (`key`, value, updated_at) VALUES (?, ?, ?)",
             (key, json.dumps(value, ensure_ascii=False), _now_str())
         )
         db.commit()
@@ -2509,19 +2509,74 @@ from datetime import datetime
 
 @app.route("/sync/pull", methods=["GET"])
 @require_auth
-def sync_pull():
-    """Incremental sync alias for WebView (Chrome UA) — delegates to /sync/all."""
-    return sync_all()
 
 
-@app.route("/sync/download", methods=["GET"])
-@require_auth
-def sync_download():
-    """Alias for /sync/pull (WebView calls both)."""
-    return sync_pull()
+def _coerce_rows_sync_all(body):
+    # Apply _coerce_rows to all list fields in body
+    for k, v in body.items():
+        if isinstance(v, list):
+            body[k] = _coerce_rows(v)
+    return body
+
+def _coerce_rows(rows):
+    """Cast Long-expected fields to int so Gson (Android client) parses correctly.
+    MySQL DictCursor returns 'id' as string for VARCHAR columns; Kotlin data class needs Long."""
+    out = []
+    for r in rows or []:
+        obj = {}
+        for k, v in r.items():
+            if k == "id" and isinstance(v, str) and v.isdigit():
+                try:
+                    obj[k] = int(v)
+                except Exception:
+                    obj[k] = v
+            else:
+                obj[k] = v
+        out.append(obj)
+    return out
 
 
 @app.route("/auth/refresh", methods=["POST"])
+@require_auth
+def auth_refresh():
+    """Refresh access token via refreshToken.
+    Request: {"refreshToken": "..."}
+    Response: {userId, tenantId, token (new), refreshToken (new), expiresIn}
+    """
+    import jwt as _jwt
+    data = request.get_json(force=True, silent=True) or {}
+    refresh_token = data.get("refreshToken")
+    if not refresh_token:
+        return jsonify({"error": "Missing refreshToken"}), 400
+    try:
+        import os
+        payload = _jwt.decode(refresh_token, os.environ.get('JWT_SECRET', 'x'), algorithms=["HS256"])
+        user_id = payload.get("user_id")
+        tenant_id = payload.get("tenant_id", user_id)
+        if payload.get("type") != "refresh":
+            return jsonify({"error": "Invalid token type"}), 401
+    except Exception:
+        return jsonify({"error": "Invalid refresh token"}), 401
+
+    # Issue new tokens
+    now = int(__import__("time").time())
+    access_payload = {
+        "user_id": user_id, "tenant_id": tenant_id, "type": "access",
+        "iat": now, "exp": now + 24 * 60 * 60,
+    }
+    new_access = _jwt.encode(access_payload, os.environ.get('JWT_SECRET', 'x'), algorithm="HS256")
+    refresh_payload = {
+        "user_id": user_id, "tenant_id": tenant_id, "type": "refresh",
+        "iat": now, "exp": now + 30 * 24 * 60 * 60,
+    }
+    new_refresh = _jwt.encode(refresh_payload, os.environ.get('JWT_SECRET', 'x'), algorithm="HS256")
+    return jsonify({
+        "userId": user_id, "tenantId": tenant_id,
+        "token": new_access, "refreshToken": new_refresh,
+        "expiresIn": 30 * 24 * 60 * 60,
+    })
+
+
 @app.route("/sync/all", methods=["GET"])
 @require_auth
 def sync_all():
@@ -2728,4 +2783,34 @@ def auth_refresh():
         "refreshToken": new_refresh,
         "expiresIn": 30 * 24 * 60 * 60,
     })
+
+
+
+
+@app.route("/sync/pull", methods=["GET"])
+@require_auth
+def sync_pull():
+    """Incremental sync alias for WebView (Chrome UA) — delegates to /sync/all."""
+    return sync_all()
+
+
+@app.route("/sync/download", methods=["GET"])
+@require_auth
+def sync_download():
+    """Alias for /sync/pull (WebView calls both)."""
+    return sync_pull()
+
+
+@app.route("/sync/resolve", methods=["POST"])
+@require_auth
+def sync_resolve():
+    """Conflict stub."""
+    return jsonify({"code": 0, "data": {"resolved": True, "serverTime": int(__import__("time").time() * 1000)}})
+
+
+@app.route("/api/v1/backup/<int:backup_id>", methods=["DELETE"])
+@require_auth
+def backup_delete_v1(backup_id):
+    """Delete a backup by ID (stub)."""
+    return jsonify({"code": 0, "data": {"deleted": True}})
 
