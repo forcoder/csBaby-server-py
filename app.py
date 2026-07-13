@@ -29,12 +29,12 @@ from domain.entities.model_config import ModelConfig
 from domain.entities.reply_history import ReplyHistory
 from domain.entities.feedback import Feedback
 from infrastructure.persistence.database import init_db, get_connection
-from infrastructure.persistence.device_repo_sqlite import SqliteDeviceRepository
-from infrastructure.persistence.rule_repo_sqlite import SqliteRuleRepository
-from infrastructure.persistence.model_repo_sqlite import SqliteModelRepository
-from infrastructure.persistence.history_repo_sqlite import SqliteHistoryRepository
-from infrastructure.persistence.feedback_repo_sqlite import SqliteFeedbackRepository
-from infrastructure.persistence.metrics_repo_sqlite import SqliteMetricsRepository
+from infrastructure.persistence.device_repo import SqliteDeviceRepository
+from infrastructure.persistence.rule_repo import SqliteRuleRepository
+from infrastructure.persistence.model_repo import SqliteModelRepository
+from infrastructure.persistence.history_repo import SqliteHistoryRepository
+from infrastructure.persistence.feedback_repo import SqliteFeedbackRepository
+from infrastructure.persistence.metrics_repo import SqliteMetricsRepository
 from infrastructure.sync.sync_writer import SyncWriter
 from domain.services.auth_service import AuthService as UserAuthService
 
@@ -213,7 +213,7 @@ def user_register():
     if not phone:
         phone = f"email:{email}"
 
-    from infrastructure.persistence.user_repo_sqlite import SqliteUserRepository
+    from infrastructure.persistence.user_repo import SqliteUserRepository
     repo = SqliteUserRepository()
     if repo.get_by_phone(phone):
         return jsonify({"error": "phone already registered"}), 409
@@ -248,7 +248,7 @@ def user_login():
     if not identifier or not password:
         return jsonify({"error": "phone or email and password are required"}), 400
 
-    from infrastructure.persistence.user_repo_sqlite import SqliteUserRepository
+    from infrastructure.persistence.user_repo import SqliteUserRepository
     repo = SqliteUserRepository()
     row = repo.get_by_identifier(identifier)
     if not row or not UserAuthService.verify_password(password, row["salt"], row["password_hash"]):
