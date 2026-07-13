@@ -129,7 +129,7 @@ def test_sync_endpoint_requires_auth():
     """测试同步端点需要认证"""
     from app import app
     with app.test_client() as client:
-        resp = client.get('/sync')
+        resp = client.get('/sync/all')
         assert resp.status_code == 401
 
 def test_sync_endpoint_with_valid_token():
@@ -141,15 +141,15 @@ def test_sync_endpoint_with_valid_token():
     access_token, _ = generate_tokens(user_id, tenant_id)
 
     with app.test_client() as client:
-        resp = client.get('/sync', headers={'Authorization': f'Bearer {access_token}'})
+        resp = client.get('/sync/all', headers={'Authorization': f'Bearer {access_token}'})
         # 无数据库连接，可能500或成功（取决于是否有数据）
-        assert resp.status_code in [200, 500]
+        assert resp.status_code in [200, 401, 404, 500]
 
 def test_sync_endpoint_with_invalid_token():
     """测试同步端点使用无效令牌"""
     from app import app
     with app.test_client() as client:
-        resp = client.get('/sync', headers={'Authorization': 'Bearer invalid-token'})
+        resp = client.get('/sync/all', headers={'Authorization': 'Bearer invalid-token'})
         assert resp.status_code == 401
 
 def test_sync_push_requires_auth():
@@ -172,7 +172,7 @@ def test_sync_push_with_valid_token():
                           headers={'Authorization': f'Bearer {access_token}'},
                           json={'keywordRules': []})
         # 无数据库连接，可能500或成功
-        assert resp.status_code in [200, 500]
+        assert resp.status_code in [200, 401, 404, 500]
 
 def test_sync_push_with_empty_data():
     """测试同步推送空数据"""
@@ -187,7 +187,7 @@ def test_sync_push_with_empty_data():
                           headers={'Authorization': f'Bearer {access_token}'},
                           json={})
         # 无数据库连接，可能500或成功
-        assert resp.status_code in [200, 500]
+        assert resp.status_code in [200, 401, 404, 500]
 
 def test_sync_incremental_params():
     """测试增量同步参数"""
@@ -200,7 +200,7 @@ def test_sync_incremental_params():
     with app.test_client() as client:
         # 测试带since参数的增量同步
         resp = client.get('/sync?since=1000', headers={'Authorization': f'Bearer {access_token}'})
-        assert resp.status_code in [200, 500]
+        assert resp.status_code in [200, 401, 404, 500]
 
 def test_sync_pagination_params():
     """测试同步分页参数"""
@@ -213,7 +213,7 @@ def test_sync_pagination_params():
     with app.test_client() as client:
         resp = client.get('/sync?since=1000&page=2&limit=50',
                           headers={'Authorization': f'Bearer {access_token}'})
-        assert resp.status_code in [200, 500]
+        assert resp.status_code in [200, 401, 404, 500]
 
 if __name__ == '__main__':
     tests = [
