@@ -2519,20 +2519,32 @@ def _coerce_rows_sync_all(body):
     return body
 
 def _coerce_rows(rows):
-    """Cast Long-expected fields to int so Gson (Android client) parses correctly.
-    MySQL DictCursor returns 'id' as string for VARCHAR columns; Kotlin data class needs Long."""
+    """Cast types so Gson (Android client) parses correctly.
+    - id: string -> int (Long). 异常 uuid 字符串(含 - _ 时)退化为 abs(hash) % 2^31
+    - deleted/enabled: int 0/1 -> bool
+    - snake_case keys -> camelCase (与客户端 SyncKeywordRule 等 @SerializedName 对齐)
+    """
+    import re as _re
+    def _to_camel_keys(d):
+        return {_re.sub(r'_([a-z])', lambda m: m.group(1).upper(), k): v for k, v in d.items()}
     out = []
     for r in rows or []:
         obj = {}
         for k, v in r.items():
-            if k == "id" and isinstance(v, str) and v.isdigit():
-                try:
-                    obj[k] = int(v)
-                except Exception:
-                    obj[k] = v
+            if k == "id":
+                s = str(v).strip()
+                if s.isdigit():
+                    try:
+                        obj[k] = int(s)
+                    except Exception:
+                        obj[k] = abs(hash(s)) % (2**31)
+                else:
+                    obj[k] = abs(hash(s)) % (2**31)
+            elif k in ("deleted", "enabled") and isinstance(v, int):
+                obj[k] = v != 0
             else:
                 obj[k] = v
-        out.append(obj)
+        out.append(_to_camel_keys(obj))
     return out
 
 
