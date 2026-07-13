@@ -436,10 +436,10 @@ def batch_import_rules():
 
 def _rule_to_dict(rule: KeywordRule) -> dict:
     return {
-        "id": rule.id, "user_id": rule.user_id, "keyword": rule.keyword,
-        "match_type": rule.match_type, "reply_template": rule.reply_template,
-        "category": rule.category, "target_type": rule.target_type,
-        "target_names": json.dumps(rule.target_names), "priority": rule.priority,
+        "id": rule.id, "userId": rule.user_id, "keyword": rule.keyword,
+        "matchType": rule.match_type, "replyTemplate": rule.reply_template,
+        "category": rule.category, "targetType": rule.target_type,
+        "targetNames": json.dumps(rule.target_names), "priority": rule.priority,
         "enabled": int(rule.enabled),
     }
 
@@ -541,10 +541,10 @@ def _model_to_dict(m: ModelConfig) -> dict:
         else:
             api_key = "*" * (len(api_key) - 4) + api_key[-4:]
     return {
-        "id": m.id, "user_id": m.user_id, "name": m.name,
-        "model_type": m.model_type, "model": m.model, "api_key": api_key,
-        "api_endpoint": m.api_endpoint, "temperature": m.temperature,
-        "max_tokens": m.max_tokens, "is_default": int(m.is_default),
+        "id": m.id, "userId": m.user_id, "name": m.name,
+        "modelType": m.model_type, "model": m.model, "apiKey": api_key,
+        "apiEndpoint": m.api_endpoint, "temperature": m.temperature,
+        "maxTokens": m.max_tokens, "isDefault": int(m.is_default),
         "enabled": int(m.enabled),
     }
 
